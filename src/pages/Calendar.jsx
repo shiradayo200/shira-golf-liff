@@ -73,21 +73,24 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
   async function fetchWeek(mon) {
     setLoading(true)
     setSlots({})
-    const res = {}
-    await Promise.all(
-      Array.from({ length: 5 }, (_, i) => addDays(mon, i)).map(async d => {
+    const weekDays = Array.from({ length: 5 }, (_, i) => addDays(mon, i))
+    try {
+      const r = await axios.get(GAS_URL, { params: {
+        action: 'getWeekSlots', weekStart: format(mon, 'yyyy-MM-dd'),
+        lessonType, location: loc, userId: profile.userId, _t: Date.now()
+      }})
+      const byDate = r.data.slotsByDate || {}
+      const res = {}
+      weekDays.forEach(d => {
         const ds = format(d, 'yyyy-MM-dd')
-        if (isBefore(d, minDate) || isAfter(d, maxDate)) { res[ds] = []; return }
-        try {
-          const r = await axios.get(GAS_URL, { params: {
-            action: 'getAvailableSlots', date: ds,
-            lessonType, location: loc, userId: profile.userId, _t: Date.now()
-          }})
-          res[ds] = r.data.slots || []
-        } catch { res[ds] = [] }
+        res[ds] = (isBefore(d, minDate) || isAfter(d, maxDate)) ? [] : (byDate[ds] || [])
       })
-    )
-    setSlots(res)
+      setSlots(res)
+    } catch {
+      const res = {}
+      weekDays.forEach(d => { res[format(d, 'yyyy-MM-dd')] = [] })
+      setSlots(res)
+    }
     setLoading(false)
   }
 
