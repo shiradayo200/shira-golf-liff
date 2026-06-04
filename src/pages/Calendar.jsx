@@ -206,9 +206,11 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
                   {!loading && !disabled && groupSlots(daySlots).map((group, gi) => {
                     const firstSt = new Date(group[0].start)
                     const top = (firstSt.getHours() + firstSt.getMinutes() / 60 - HR_START) * HR_PX
+                    const durH  = dur / 60 * HR_PX
+                    const groupH = Math.max(durH, group.length * 32)
 
                     return (
-                      <div key={gi} style={{ ...s.slotGroup, top }}>
+                      <div key={gi} style={{ ...s.slotGroup, top, height: groupH }}>
                         {group.map(sl => {
                           const st = new Date(sl.start)
                           const en = new Date(sl.end)
@@ -321,9 +323,8 @@ const s = {
   slotRow:   { background: 'transparent', border: 'none',
                borderBottom: '1px solid rgba(255,255,255,0.25)',
                cursor: 'pointer', textAlign: 'left',
-               padding: '0 6px', height: 32,
-               display: 'flex', alignItems: 'center', gap: 3,
-               flexShrink: 0 },
+               padding: '0 6px', flex: 1, minHeight: 32,
+               display: 'flex', alignItems: 'center', gap: 3 },
   slotFrom:  { fontSize: 11, fontWeight: 700, color: '#fff', lineHeight: 1 },
   slotTo:    { fontSize: 10, color: 'rgba(255,255,255,0.75)', lineHeight: 1 },
 }
