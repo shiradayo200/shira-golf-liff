@@ -32,6 +32,21 @@ const HR_START = 8   // 8:00 から表示
 const HR_END   = 20  // 20:00 まで表示
 const HR_PX    = 56  // 1時間あたりのピクセル高
 
+const SLOT_CACHE_TTL = 4 * 60 * 1000  // 4 min (GAS cache is 5 min)
+
+function readSlotCache(key) {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const { ts, v } = JSON.parse(raw)
+    return Date.now() - ts < SLOT_CACHE_TTL ? v : null
+  } catch { return null }
+}
+
+function writeSlotCache(key, v) {
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), v })) } catch {}
+}
+
 function groupSlots(slots) {
   if (!slots.length) return []
   const sorted = [...slots].sort((a, b) => new Date(a.start) - new Date(b.start))
@@ -70,10 +85,11 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
     fetchWeek(weekMon)
   }, [weekMon, loc])
 
-  async function fetchWeek(mon) {
-    setLoading(true)
-    setSlots({})
-    const weekDays = Array.from({ length: 5 }, (_, i) => addDays(mon, i))
+  function slotKey(mon) {
+    return `sg_${format(mon, 'yyyyMMdd')}_${lessonType}_${loc}`
+  }
+
+  async function loadFromGas(mon, weekDays, updateState) {
     try {
       const r = await axios.get(GAS_URL, { params: {
         action: 'getWeekSlots', weekStart: format(mon, 'yyyy-MM-dd'),
@@ -85,13 +101,37 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
         const ds = format(d, 'yyyy-MM-dd')
         res[ds] = (isBefore(d, minDate) || isAfter(d, maxDate)) ? [] : (byDate[ds] || [])
       })
-      setSlots(res)
+      writeSlotCache(slotKey(mon), res)
+      if (updateState) setSlots(res)
     } catch {
-      const res = {}
-      weekDays.forEach(d => { res[format(d, 'yyyy-MM-dd')] = [] })
-      setSlots(res)
+      if (updateState) {
+        const empty = {}
+        weekDays.forEach(d => { empty[format(d, 'yyyy-MM-dd')] = [] })
+        setSlots(empty)
+      }
     }
-    setLoading(false)
+    if (updateState) setLoading(false)
+  }
+
+  async function fetchWeek(mon) {
+    const wd     = Array.from({ length: 5 }, (_, i) => addDays(mon, i))
+    const cached = readSlotCache(slotKey(mon))
+
+    if (cached) {
+      setSlots(cached)
+      loadFromGas(mon, wd, false)  // バックグラウンドでキャッシュ更新（UIは変えない）
+    } else {
+      setLoading(true)
+      setSlots({})
+      await loadFromGas(mon, wd, true)
+    }
+
+    // 次の週を先読み（ナビがほぼ瞬時になる）
+    const next = addWeeks(mon, 1)
+    if (!isAfter(next, maxDate)) {
+      const nextWd = Array.from({ length: 5 }, (_, i) => addDays(next, i))
+      setTimeout(() => loadFromGas(next, nextWd, false), 400)
+    }
   }
 
   return (
