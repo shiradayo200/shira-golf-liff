@@ -32,6 +32,20 @@ const HR_START = 8   // 8:00 から表示
 const HR_END   = 20  // 20:00 まで表示
 const HR_PX    = 56  // 1時間あたりのピクセル高
 
+function groupSlots(slots) {
+  if (!slots.length) return []
+  const sorted = [...slots].sort((a, b) => new Date(a.start) - new Date(b.start))
+  const groups = []
+  let group = [sorted[0]]
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = (new Date(sorted[i].start) - new Date(sorted[i - 1].start)) / 60000
+    if (gap <= 15) group.push(sorted[i])
+    else { groups.push(group); group = [sorted[i]] }
+  }
+  groups.push(group)
+  return groups
+}
+
 export default function Calendar({ profile, lessonType, onBook, onBack }) {
   const today   = startOfToday()
   const minDate = addDays(today, 1)
@@ -188,22 +202,28 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
                     <div style={s.loadOverlay} />
                   )}
 
-                  {/* 空き枠ブロック */}
-                  {!loading && !disabled && daySlots.map(sl => {
-                    const st  = new Date(sl.start)
-                    const en  = new Date(sl.end)
-                    const top = (st.getHours() + st.getMinutes() / 60 - HR_START) * HR_PX
-                    const ht  = (en.getHours() + en.getMinutes() / 60 - st.getHours() - st.getMinutes() / 60) * HR_PX - 3
+                  {/* 空き枠ブロック：連続スロットをグループ化して押しやすく表示 */}
+                  {!loading && !disabled && groupSlots(daySlots).map((group, gi) => {
+                    const firstSt = new Date(group[0].start)
+                    const top = (firstSt.getHours() + firstSt.getMinutes() / 60 - HR_START) * HR_PX
 
                     return (
-                      <button
-                        key={sl.start}
-                        style={{ ...s.slotBtn, top, height: ht }}
-                        onClick={() => onBook({ start: st, end: en, label: sl.label, location: loc })}
-                      >
-                        <span style={s.slotFrom}>{format(st, 'H:mm')}</span>
-                        <span style={s.slotTo}>- {format(en, 'H:mm')}</span>
-                      </button>
+                      <div key={gi} style={{ ...s.slotGroup, top }}>
+                        {group.map(sl => {
+                          const st = new Date(sl.start)
+                          const en = new Date(sl.end)
+                          return (
+                            <button
+                              key={sl.start}
+                              style={s.slotRow}
+                              onClick={() => onBook({ start: st, end: en, label: sl.label, location: loc })}
+                            >
+                              <span style={s.slotFrom}>{format(st, 'H:mm')}</span>
+                              <span style={s.slotTo}>-{format(en, 'H:mm')}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
                     )
                   })}
                 </div>
@@ -294,10 +314,16 @@ const s = {
   loadOverlay: { position: 'absolute', inset: 0, background: '#F9FAFB',
                  animation: 'pulse 1.5s ease-in-out infinite' },
 
-  slotBtn:  { position: 'absolute', left: 2, right: 2,
-              background: '#00968A', border: 'none', borderRadius: 4,
-              cursor: 'pointer', display: 'flex', flexDirection: 'column',
-              alignItems: 'flex-start', padding: '4px 5px', overflow: 'hidden' },
-  slotFrom: { fontSize: 10, fontWeight: 700, color: '#fff', lineHeight: 1.3 },
-  slotTo:   { fontSize: 9, color: 'rgba(255,255,255,0.8)', lineHeight: 1.3 },
+  slotGroup: { position: 'absolute', left: 2, right: 2,
+               background: '#00968A', borderRadius: 6, overflow: 'hidden',
+               display: 'flex', flexDirection: 'column',
+               boxShadow: '0 1px 4px rgba(0,150,138,0.3)' },
+  slotRow:   { background: 'transparent', border: 'none',
+               borderBottom: '1px solid rgba(255,255,255,0.25)',
+               cursor: 'pointer', textAlign: 'left',
+               padding: '0 6px', height: 32,
+               display: 'flex', alignItems: 'center', gap: 3,
+               flexShrink: 0 },
+  slotFrom:  { fontSize: 11, fontWeight: 700, color: '#fff', lineHeight: 1 },
+  slotTo:    { fontSize: 10, color: 'rgba(255,255,255,0.75)', lineHeight: 1 },
 }
