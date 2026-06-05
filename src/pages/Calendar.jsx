@@ -70,10 +70,12 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
   const dur  = LESSON_DURATION[lessonType] ?? 60
   const locs = LOCATION_OPTIONS[lessonType] || []
 
-  const [weekMon, setWeekMon] = useState(() => startOfWeek(today, { weekStartsOn: 1 }))
-  const [loc, setLoc]         = useState(locs.length === 1 ? locs[0].code : null)
-  const [slots, setSlots]     = useState({})
-  const [loading, setLoading] = useState(false)
+  const [weekMon, setWeekMon]   = useState(() => startOfWeek(today, { weekStartsOn: 1 }))
+  const [loc, setLoc]           = useState(locs.length === 1 ? locs[0].code : null)
+  const [slots, setSlots]       = useState({})
+  const [loading, setLoading]   = useState(false)
+  const [quickDays, setQuickDays] = useState(null)   // null | Date[]
+  const [searching, setSearching] = useState(false)
 
   const days = Array.from({ length: 5 }, (_, i) => addDays(weekMon, i))
 
@@ -111,6 +113,48 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
       }
     }
     if (updateState) setLoading(false)
+  }
+
+  async function findNearDays() {
+    setSearching(true)
+    setQuickDays([])
+    const found = []
+    let mon = startOfWeek(minDate, { weekStartsOn: 1 })
+
+    while (!isAfter(mon, maxDate) && found.length < 5) {
+      const wd  = Array.from({ length: 5 }, (_, i) => addDays(mon, i))
+      const key = `sg_${format(mon, 'yyyyMMdd')}_${lessonType}_${loc}`
+      let res   = readSlotCache(key)
+
+      if (!res) {
+        try {
+          const r = await axios.get(GAS_URL, { params: {
+            action: 'getWeekSlots', weekStart: format(mon, 'yyyy-MM-dd'),
+            lessonType, location: loc, userId: profile.userId, _t: Date.now()
+          }})
+          const byDate = r.data.slotsByDate || {}
+          res = {}
+          wd.forEach(d => {
+            const ds = format(d, 'yyyy-MM-dd')
+            res[ds] = (isBefore(d, minDate) || isAfter(d, maxDate)) ? [] : (byDate[ds] || [])
+          })
+          writeSlotCache(key, res)
+        } catch {
+          mon = addWeeks(mon, 1)
+          continue
+        }
+      }
+
+      wd.forEach(d => {
+        if (found.length >= 5) return
+        const ds = format(d, 'yyyy-MM-dd')
+        if (!isBefore(d, minDate) && !isAfter(d, maxDate) && res[ds]?.length > 0) found.push(d)
+      })
+      mon = addWeeks(mon, 1)
+    }
+
+    setQuickDays(found)
+    setSearching(false)
   }
 
   async function fetchWeek(mon) {
@@ -167,7 +211,7 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
               <button
                 key={l.code}
                 style={{ ...s.locBtn, ...(loc === l.code ? s.locBtnOn : {}) }}
-                onClick={() => { setLoc(l.code); setSlots({}) }}
+                onClick={() => { setLoc(l.code); setSlots({}); setQuickDays(null) }}
               >
                 {l.name}
               </button>
@@ -179,6 +223,36 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
       {loc && (
         <div style={s.calWrap}>
           <div style={s.calPrompt}>ご都合の良い日時を選択してください</div>
+
+          {/* 直近空き枠検索 */}
+          <div style={s.quickWrap}>
+            <button
+              style={{ ...s.quickBtn, opacity: searching ? 0.6 : 1 }}
+              disabled={searching}
+              onClick={findNearDays}
+            >
+              {searching ? '検索中...' : '空き枠を探す'}
+            </button>
+            {quickDays !== null && !searching && (
+              <div style={s.quickResult}>
+                {quickDays.length === 0
+                  ? <span style={s.quickNone}>直近30日は空き枠なし</span>
+                  : quickDays.map(d => (
+                      <button
+                        key={format(d, 'yyyy-MM-dd')}
+                        style={s.quickDay}
+                        onClick={() => {
+                          setWeekMon(startOfWeek(d, { weekStartsOn: 1 }))
+                          setQuickDays(null)
+                        }}
+                      >
+                        {format(d, 'M/d(E)', { locale: ja })}
+                      </button>
+                    ))
+                }
+              </div>
+            )}
+          </div>
 
           {/* 週ナビゲーション */}
           <div style={s.weekNav}>
@@ -243,6 +317,11 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
                   {/* ローディング */}
                   {loading && !disabled && (
                     <div style={s.loadOverlay} />
+                  )}
+
+                  {/* 空き枠なし表示 */}
+                  {!loading && !disabled && Object.keys(slots).length > 0 && daySlots.length === 0 && (
+                    <div style={s.noSlot}>空き枠なし</div>
                   )}
 
                   {/* 空き枠ブロック：連続スロットをグループ化して押しやすく表示 */}
@@ -358,6 +437,21 @@ const s = {
   hLine:       { position: 'absolute', left: 0, right: 0, height: 1, background: '#F3F4F6' },
   loadOverlay: { position: 'absolute', inset: 0, background: '#F9FAFB',
                  animation: 'pulse 1.5s ease-in-out infinite' },
+
+  quickWrap:   { padding: '6px 16px 10px', borderBottom: '1px solid #F3F4F6' },
+  quickBtn:    { fontSize: 12, fontWeight: 600, color: '#00968A',
+                 background: '#E6F7F5', border: '1px solid #00968A',
+                 borderRadius: 6, padding: '5px 14px', cursor: 'pointer' },
+  quickResult: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  quickDay:    { fontSize: 12, fontWeight: 600, color: '#00968A',
+                 background: '#fff', border: '1px solid #00968A',
+                 borderRadius: 999, padding: '3px 12px', cursor: 'pointer' },
+  quickNone:   { fontSize: 12, color: '#9CA3AF', marginTop: 2, display: 'block' },
+
+  noSlot:    { position: 'absolute', inset: 0,
+               display: 'flex', alignItems: 'center', justifyContent: 'center',
+               fontSize: 10, color: '#D1D5DB',
+               writingMode: 'vertical-rl', letterSpacing: 2 },
 
   slotGroup: { position: 'absolute', left: 2, right: 2,
                background: '#00968A', borderRadius: 6, overflow: 'hidden',
