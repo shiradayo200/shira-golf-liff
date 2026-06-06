@@ -119,7 +119,6 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
     setSearching(true)
     setQuickDays([])
 
-    // キャッシュをクリアして常に最新データを取得
     try {
       const keysToDelete = []
       for (let i = 0; i < localStorage.length; i++) {
@@ -129,15 +128,19 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
       keysToDelete.forEach(k => localStorage.removeItem(k))
     } catch {}
 
-    const found = []
+    // 検索範囲の全週を列挙して並列フェッチ（順次→一括で大幅高速化）
+    const weeks = []
     let mon = startOfWeek(minDate, { weekStartsOn: 1 })
+    while (!isAfter(mon, maxDate)) {
+      weeks.push(mon)
+      mon = addWeeks(mon, 1)
+    }
 
-    while (!isAfter(mon, maxDate) && found.length < 5) {
-      const wd = Array.from({ length: 5 }, (_, i) => addDays(mon, i))
+    const results = await Promise.all(weeks.map(async (wMon) => {
+      const wd = Array.from({ length: 5 }, (_, i) => addDays(wMon, i))
       try {
-        // nocache=1 でGASキャッシュもスキップ
         const r = await axios.get(GAS_URL, { params: {
-          action: 'getWeekSlots', weekStart: format(mon, 'yyyy-MM-dd'),
+          action: 'getWeekSlots', weekStart: format(wMon, 'yyyy-MM-dd'),
           lessonType, location: loc, userId: profile.userId,
           nocache: '1', _t: Date.now()
         }})
@@ -147,16 +150,21 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
           const ds = format(d, 'yyyy-MM-dd')
           res[ds] = (isBefore(d, minDate) || isAfter(d, maxDate)) ? [] : (byDate[ds] || [])
         })
-        writeSlotCache(`sg_${format(mon, 'yyyyMMdd')}_${lessonType}_${loc}`, res)
-        wd.forEach(d => {
-          if (found.length >= 5) return
-          const ds = format(d, 'yyyy-MM-dd')
-          if (!isBefore(d, minDate) && !isAfter(d, maxDate) && res[ds]?.length > 0) found.push(d)
-        })
+        writeSlotCache(`sg_${format(wMon, 'yyyyMMdd')}_${lessonType}_${loc}`, res)
+        return { wd, res }
       } catch {
-        // スキップして次の週へ
+        return { wd, res: {} }
       }
-      mon = addWeeks(mon, 1)
+    }))
+
+    const found = []
+    for (const { wd, res } of results) {
+      for (const d of wd) {
+        if (found.length >= 5) break
+        const ds = format(d, 'yyyy-MM-dd')
+        if (!isBefore(d, minDate) && !isAfter(d, maxDate) && res[ds]?.length > 0) found.push(d)
+      }
+      if (found.length >= 5) break
     }
 
     setQuickDays(found)
@@ -233,11 +241,15 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
           {/* 直近空き枠検索 */}
           <div style={s.quickWrap}>
             <button
-              style={{ ...s.quickBtn, opacity: searching ? 0.6 : 1 }}
+              style={{ ...s.quickBtn, opacity: searching ? 0.7 : 1 }}
               disabled={searching}
               onClick={findNearDays}
             >
-              {searching ? '検索中...' : '空き枠を探す'}
+              <span style={{ fontSize: 20 }}>{searching ? '⏳' : '🔍'}</span>
+              <div>
+                <div style={s.quickBtnLabel}>{searching ? '検索中...' : '空き枠を探す'}</div>
+                {!searching && <div style={s.quickBtnSub}>直近30日の空き状況を一括検索</div>}
+              </div>
             </button>
             {quickDays !== null && !searching && (
               <div style={s.quickResult}>
@@ -444,15 +456,19 @@ const s = {
   loadOverlay: { position: 'absolute', inset: 0, background: '#F9FAFB',
                  animation: 'pulse 1.5s ease-in-out infinite' },
 
-  quickWrap:   { padding: '6px 16px 10px', borderBottom: '1px solid #F3F4F6' },
-  quickBtn:    { fontSize: 12, fontWeight: 600, color: '#00968A',
-                 background: '#E6F7F5', border: '1px solid #00968A',
-                 borderRadius: 6, padding: '5px 14px', cursor: 'pointer' },
-  quickResult: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  quickDay:    { fontSize: 12, fontWeight: 600, color: '#00968A',
-                 background: '#fff', border: '1px solid #00968A',
-                 borderRadius: 999, padding: '3px 12px', cursor: 'pointer' },
-  quickNone:   { fontSize: 12, color: '#9CA3AF', marginTop: 2, display: 'block' },
+  quickWrap:     { padding: '10px 16px 14px', borderBottom: '1px solid #F3F4F6' },
+  quickBtn:      { width: '100%', padding: '14px 0',
+                   background: '#00968A', border: 'none', borderRadius: 12,
+                   cursor: 'pointer', display: 'flex', alignItems: 'center',
+                   justifyContent: 'center', gap: 10,
+                   boxShadow: '0 2px 8px rgba(0,150,138,0.35)' },
+  quickBtnLabel: { fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: 0.3, textAlign: 'left' },
+  quickBtnSub:   { fontSize: 11, color: 'rgba(255,255,255,0.8)', marginTop: 2, textAlign: 'left' },
+  quickResult:   { display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 12 },
+  quickDay:      { fontSize: 13, fontWeight: 600, color: '#00968A',
+                   background: '#E6F7F5', border: '1px solid #00968A',
+                   borderRadius: 999, padding: '6px 16px', cursor: 'pointer' },
+  quickNone:     { fontSize: 13, color: '#9CA3AF', marginTop: 4, display: 'block' },
 
   noSlot:    { position: 'absolute', inset: 0,
                display: 'flex', alignItems: 'center', justifyContent: 'center',
