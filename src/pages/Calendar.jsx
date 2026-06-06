@@ -128,46 +128,18 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
       keysToDelete.forEach(k => localStorage.removeItem(k))
     } catch {}
 
-    // 検索範囲の全週を列挙して並列フェッチ（順次→一括で大幅高速化）
-    const weeks = []
-    let mon = startOfWeek(minDate, { weekStartsOn: 1 })
-    while (!isAfter(mon, maxDate)) {
-      weeks.push(mon)
-      mon = addWeeks(mon, 1)
+    // GAS側で90日一括検索（1リクエスト・カレンダーAPI1回で完結）
+    try {
+      const r = await axios.get(GAS_URL, { params: {
+        action: 'findAvailableDays',
+        lessonType, location: loc, userId: profile.userId,
+        maxDays: 90, maxResults: 5, _t: Date.now()
+      }})
+      setQuickDays((r.data.dates || []).map(ds => new Date(ds + 'T12:00:00+09:00')))
+    } catch {
+      setQuickDays([])
     }
 
-    const results = await Promise.all(weeks.map(async (wMon) => {
-      const wd = Array.from({ length: 5 }, (_, i) => addDays(wMon, i))
-      try {
-        const r = await axios.get(GAS_URL, { params: {
-          action: 'getWeekSlots', weekStart: format(wMon, 'yyyy-MM-dd'),
-          lessonType, location: loc, userId: profile.userId,
-          nocache: '1', _t: Date.now()
-        }})
-        const byDate = r.data.slotsByDate || {}
-        const res = {}
-        wd.forEach(d => {
-          const ds = format(d, 'yyyy-MM-dd')
-          res[ds] = (isBefore(d, minDate) || isAfter(d, maxDate)) ? [] : (byDate[ds] || [])
-        })
-        writeSlotCache(`sg_${format(wMon, 'yyyyMMdd')}_${lessonType}_${loc}`, res)
-        return { wd, res }
-      } catch {
-        return { wd, res: {} }
-      }
-    }))
-
-    const found = []
-    for (const { wd, res } of results) {
-      for (const d of wd) {
-        if (found.length >= 5) break
-        const ds = format(d, 'yyyy-MM-dd')
-        if (!isBefore(d, minDate) && !isAfter(d, maxDate) && res[ds]?.length > 0) found.push(d)
-      }
-      if (found.length >= 5) break
-    }
-
-    setQuickDays(found)
     setSearching(false)
   }
 
