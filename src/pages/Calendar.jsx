@@ -72,10 +72,13 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
 
   const [weekMon, setWeekMon]   = useState(() => startOfWeek(today, { weekStartsOn: 1 }))
   const [loc, setLoc]           = useState(locs.length === 1 ? locs[0].code : null)
+  const [frames, setFrames]     = useState(null)   // null | 1 | 2（L4のみ使用）
   const [slots, setSlots]       = useState({})
   const [loading, setLoading]   = useState(false)
   const [quickDays, setQuickDays] = useState(null)   // null | Date[]
   const [searching, setSearching] = useState(false)
+
+  const effectiveDur = (loc === 'L4' && frames) ? frames * 50 : dur
 
   const days = Array.from({ length: 5 }, (_, i) => addDays(weekMon, i))
 
@@ -84,18 +87,20 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
 
   useEffect(() => {
     if (!loc) return
+    if (loc === 'L4' && !frames) return  // 枠数未選択時はフェッチしない
     fetchWeek(weekMon)
-  }, [weekMon, loc])
+  }, [weekMon, loc, frames])
 
   function slotKey(mon) {
-    return `sg_${format(mon, 'yyyyMMdd')}_${lessonType}_${loc}`
+    return `sg_${format(mon, 'yyyyMMdd')}_${lessonType}_${loc}${frames ? '_' + frames : ''}`
   }
 
   async function loadFromGas(mon, weekDays, updateState) {
     try {
       const r = await axios.get(GAS_URL, { params: {
         action: 'getWeekSlots', weekStart: format(mon, 'yyyy-MM-dd'),
-        lessonType, location: loc, userId: profile.userId, _t: Date.now()
+        lessonType, location: loc, userId: profile.userId,
+        frames: frames || '', _t: Date.now()
       }})
       const byDate = r.data.slotsByDate || {}
       const res = {}
@@ -133,7 +138,7 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
       const r = await axios.get(GAS_URL, { params: {
         action: 'findAvailableDays',
         lessonType, location: loc, userId: profile.userId,
-        maxDays: 90, maxResults: 5, _t: Date.now()
+        frames: frames || '', maxDays: 90, maxResults: 5, _t: Date.now()
       }})
       setQuickDays((r.data.dates || []).map(ds => new Date(ds + 'T12:00:00+09:00')))
     } catch {
@@ -198,7 +203,7 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
               <button
                 key={l.code}
                 style={{ ...s.locBtn, ...(loc === l.code ? s.locBtnOn : {}) }}
-                onClick={() => { setLoc(l.code); setSlots({}); setQuickDays(null) }}
+                onClick={() => { setLoc(l.code); setSlots({}); setQuickDays(null); setFrames(null) }}
               >
                 {l.name}
               </button>
@@ -207,7 +212,24 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
         </div>
       )}
 
-      {loc && (
+      {/* L4: 枠数セレクター */}
+      {loc === 'L4' && !frames && (
+        <div style={s.framesWrap}>
+          <div style={s.framesLabel}>枠数を選択してください</div>
+          <div style={s.framesGrid}>
+            <button style={s.frameBtn} onClick={() => { setFrames(1); setSlots({}) }}>
+              <div style={s.frameBtnMain}>1枠　50分</div>
+              <div style={s.frameBtnSub}>¥10,000</div>
+            </button>
+            <button style={s.frameBtn} onClick={() => { setFrames(2); setSlots({}) }}>
+              <div style={s.frameBtnMain}>2枠　100分</div>
+              <div style={s.frameBtnSub}>¥20,000</div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loc && (loc !== 'L4' || frames) && (
         <div style={s.calWrap}>
           <div style={s.calPrompt}>ご都合の良い日時を選択してください</div>
 
@@ -299,7 +321,7 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
               const ds       = format(d, 'yyyy-MM-dd')
               const disabled = isBefore(d, minDate) || isAfter(d, maxDate)
               const daySlots = slots[ds] || []
-              const totalH   = (HR_END - HR_START) * HR_PX
+              const totalH = (HR_END - HR_START) * HR_PX
 
               return (
                 <div key={ds} style={{ ...s.dayCol, height: totalH }}>
@@ -322,7 +344,7 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
                   {!loading && !disabled && groupSlots(daySlots).map((group, gi) => {
                     const firstSt = new Date(group[0].start)
                     const top = (firstSt.getHours() + firstSt.getMinutes() / 60 - HR_START) * HR_PX
-                    const durH  = dur / 60 * HR_PX
+                    const durH  = effectiveDur / 60 * HR_PX
                     const groupH = Math.max(durH, group.length * 32)
 
                     return (
@@ -334,7 +356,7 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
                             <button
                               key={sl.start}
                               style={s.slotRow}
-                              onClick={() => onBook({ start: st, end: en, label: sl.label, location: loc })}
+                              onClick={() => onBook({ start: st, end: en, label: sl.label, location: loc, frames })}
                             >
                               <span style={s.slotFrom}>{format(st, 'H:mm')}</span>
                               <span style={s.slotTo}>-{format(en, 'H:mm')}</span>
@@ -406,6 +428,14 @@ const s = {
   locBtn:   { padding: '8px 4px', background: '#F9FAFB', border: '1px solid #E5E7EB',
               borderRadius: 6, fontSize: 12, color: '#374151', cursor: 'pointer', textAlign: 'center' },
   locBtnOn: { background: '#E6F7F5', border: '1px solid #00968A', color: '#00968A', fontWeight: 600 },
+
+  framesWrap:    { padding: '14px 16px 18px', borderTop: '1px solid #F3F4F6' },
+  framesLabel:   { fontSize: 13, fontWeight: 600, color: '#1F2937', marginBottom: 10 },
+  framesGrid:    { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 },
+  frameBtn:      { padding: '16px 8px', background: '#F9FAFB', border: '2px solid #E5E7EB',
+                   borderRadius: 10, cursor: 'pointer', textAlign: 'center' },
+  frameBtnMain:  { fontSize: 15, fontWeight: 700, color: '#1F2937', marginBottom: 4 },
+  frameBtnSub:   { fontSize: 13, color: '#00968A', fontWeight: 600 },
 
   calWrap:   { borderTop: '1px solid #F3F4F6' },
   calPrompt: { padding: '12px 16px 2px', fontSize: 13, fontWeight: 600, color: '#1F2937' },

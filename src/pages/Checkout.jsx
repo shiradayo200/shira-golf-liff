@@ -27,6 +27,9 @@ export default function Checkout({ profile, bookingData, onDone, onBack }) {
   const [plan, setPlan] = useState(null)
   const [busy, setBusy] = useState(false)
   const { lessonType, slot } = bookingData
+  const isTennoji = slot?.location === 'L4'
+  const frames    = slot?.frames || 1
+  const tennojiPrice = frames === 2 ? 20000 : 10000
 
   async function submit(extra = {}) {
     setBusy(true)
@@ -57,19 +60,32 @@ export default function Checkout({ profile, bookingData, onDone, onBack }) {
     return (
       <div style={s.page}>
         <div style={s.header}>
-          <span style={s.headerTitle}>予約完了</span>
+          <span style={s.headerTitle}>{isTennoji ? '仮予約受付完了' : '予約完了'}</span>
         </div>
         <div style={s.doneWrap}>
           <div style={s.doneIcon}>✓</div>
-          <p style={s.doneTitle}>予約が完了しました</p>
+          <p style={s.doneTitle}>{isTennoji ? '仮予約を受け付けました' : '予約が完了しました'}</p>
           <p style={s.doneSub}>
-            {isOnline ? 'LINEにGoogle MeetのURLをお送りします' : 'LINEに確認メッセージをお送りします'}
+            {isTennoji
+              ? 'LINEにてマイゴルアプリでの本予約手順をお送りします'
+              : isOnline ? 'LINEにGoogle MeetのURLをお送りします' : 'LINEに確認メッセージをお送りします'}
           </p>
         </div>
+        {isTennoji && (
+          <div style={s.tennojiNotice}>
+            <p style={s.tennojiNoticeTitle}>⚠️ 仮予約について</p>
+            <p style={s.tennojiNoticeText}>
+              こちらはシステム上の仮予約です。{'\n'}
+              実際のご予約はLINEでお送りする手順に従い、マイゴルアプリで完了してください。
+            </p>
+          </div>
+        )}
         <div style={s.summaryBox}>
           <SummaryRow label="日付" value={format(slot.start, 'yyyy年M月d日(E)', { locale: ja })} />
           <SummaryRow label="時間" value={slot.label} bold />
-          <SummaryRow label="レッスン" value={LESSON_LABEL[lessonType]} last />
+          <SummaryRow label="レッスン" value={LESSON_LABEL[lessonType]} />
+          {isTennoji && <SummaryRow label="料金" value={`¥${tennojiPrice.toLocaleString()}`} bold last />}
+          {!isTennoji && <SummaryRow label="レッスン" value={LESSON_LABEL[lessonType]} last />}
         </div>
         <div style={s.btnWrap}>
           <PrimaryBtn onClick={onDone}>トップへ戻る</PrimaryBtn>
@@ -91,7 +107,32 @@ export default function Checkout({ profile, bookingData, onDone, onBack }) {
     )
   }
 
-  // ── 対面レッスン ──────────────────────────────────────────────────
+  // ── 天王寺（L4）仮予約 ────────────────────────────────────────────
+  if (lessonType === 'face_monthly' && isTennoji) {
+    return (
+      <PageShell onBack={onBack} title="予約内容の確認" stepNum={2}>
+        <BookingSummary slot={slot} lessonType={lessonType} />
+        <div style={s.summaryBox}>
+          <SummaryRow label="枠数" value={`${frames}枠 ${frames * 50}分`} />
+          <SummaryRow label="料金" value={`¥${tennojiPrice.toLocaleString()}`} bold last />
+        </div>
+        <Notice>
+          ⚠️ こちらはシステム上の仮予約です。{'\n'}
+          予約後、LINEにてマイゴルアプリでの本予約手順・注意事項をお送りします。
+        </Notice>
+        <div style={s.btnWrap}>
+          <PrimaryBtn
+            onClick={() => submit({ payMethod: 'mygol_tennoji', frames: String(frames) })}
+            loading={busy}
+          >
+            仮予約を送る
+          </PrimaryBtn>
+        </div>
+      </PageShell>
+    )
+  }
+
+  // ── 対面レッスン（L1/L2/L3） ──────────────────────────────────────
   if (lessonType === 'face_monthly') {
     return (
       <PageShell onBack={onBack} title="予約内容の確認" stepNum={2}>
@@ -391,6 +432,11 @@ const s = {
                  border: '2px solid #D1D5DB', verticalAlign: 'middle' },
   radioOn:     { display: 'inline-block', width: 16, height: 16, borderRadius: '50%',
                  border: '5px solid #00968A', background: '#fff', verticalAlign: 'middle' },
+
+  tennojiNotice:     { margin: '0 16px 12px', padding: '14px', background: '#FFF7ED',
+                       border: '1px solid #FED7AA', borderRadius: 8 },
+  tennojiNoticeTitle:{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#C2410C' },
+  tennojiNoticeText: { margin: 0, fontSize: 12, color: '#9A3412', lineHeight: 1.75, whiteSpace: 'pre-line' },
 
   notice:      { margin: '12px 16px', padding: '12px', background: '#FFFBEB',
                  border: '1px solid #FDE68A', borderRadius: 4,
