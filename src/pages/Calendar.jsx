@@ -20,7 +20,7 @@ const LOCATION_OPTIONS = {
   face_monthly: [
     { code: 'L1', name: '泉北GC' },
     { code: 'L2', name: '上ヶ原GC' },
-    { code: 'L3', name: '阪神GC' },
+    { code: 'L3', name: '阪神GC（大正）' },
     { code: 'L4', name: 'マイゴル天王寺' },
   ],
   tokyo:          [{ code: 'L5',     name: 'マイゴル赤坂1ST' }],
@@ -194,6 +194,7 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
 
   return (
     <div style={s.page}>
+      <style>{`@keyframes sg-spin { to { transform: rotate(360deg); } }`}</style>
       {/* 戻るボタン */}
       <div style={s.topBar}>
         <button onClick={onBack} style={s.backBtn}>← 戻る</button>
@@ -245,7 +246,10 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
               disabled={searching}
               onClick={findNearDays}
             >
-              <span style={{ fontSize: 20 }}>{searching ? '⏳' : '🔍'}</span>
+              {searching
+                ? <div style={s.spinner} />
+                : <span style={{ fontSize: 20 }}>🔍</span>
+              }
               <div>
                 <div style={s.quickBtnLabel}>{searching ? '検索中...' : '空き枠を探す'}</div>
                 {!searching && <div style={s.quickBtnSub}>直近90日の空き状況を一括検索</div>}
@@ -462,6 +466,10 @@ const s = {
                    cursor: 'pointer', display: 'flex', alignItems: 'center',
                    justifyContent: 'center', gap: 10,
                    boxShadow: '0 2px 8px rgba(0,150,138,0.35)' },
+  spinner:       { width: 22, height: 22, borderRadius: '50%',
+                   border: '3px solid rgba(255,255,255,0.35)',
+                   borderTopColor: '#fff',
+                   animation: 'sg-spin 0.8s linear infinite' },
   quickBtnLabel: { fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: 0.3, textAlign: 'left' },
   quickBtnSub:   { fontSize: 11, color: 'rgba(255,255,255,0.8)', marginTop: 2, textAlign: 'left' },
   quickResult:   { display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 12 },
