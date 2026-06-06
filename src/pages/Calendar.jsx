@@ -118,38 +118,44 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
   async function findNearDays() {
     setSearching(true)
     setQuickDays([])
+
+    // キャッシュをクリアして常に最新データを取得
+    try {
+      const keysToDelete = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith('sg_')) keysToDelete.push(k)
+      }
+      keysToDelete.forEach(k => localStorage.removeItem(k))
+    } catch {}
+
     const found = []
     let mon = startOfWeek(minDate, { weekStartsOn: 1 })
 
     while (!isAfter(mon, maxDate) && found.length < 5) {
-      const wd  = Array.from({ length: 5 }, (_, i) => addDays(mon, i))
-      const key = `sg_${format(mon, 'yyyyMMdd')}_${lessonType}_${loc}`
-      let res   = readSlotCache(key)
-
-      if (!res) {
-        try {
-          const r = await axios.get(GAS_URL, { params: {
-            action: 'getWeekSlots', weekStart: format(mon, 'yyyy-MM-dd'),
-            lessonType, location: loc, userId: profile.userId, _t: Date.now()
-          }})
-          const byDate = r.data.slotsByDate || {}
-          res = {}
-          wd.forEach(d => {
-            const ds = format(d, 'yyyy-MM-dd')
-            res[ds] = (isBefore(d, minDate) || isAfter(d, maxDate)) ? [] : (byDate[ds] || [])
-          })
-          writeSlotCache(key, res)
-        } catch {
-          mon = addWeeks(mon, 1)
-          continue
-        }
+      const wd = Array.from({ length: 5 }, (_, i) => addDays(mon, i))
+      try {
+        // nocache=1 でGASキャッシュもスキップ
+        const r = await axios.get(GAS_URL, { params: {
+          action: 'getWeekSlots', weekStart: format(mon, 'yyyy-MM-dd'),
+          lessonType, location: loc, userId: profile.userId,
+          nocache: '1', _t: Date.now()
+        }})
+        const byDate = r.data.slotsByDate || {}
+        const res = {}
+        wd.forEach(d => {
+          const ds = format(d, 'yyyy-MM-dd')
+          res[ds] = (isBefore(d, minDate) || isAfter(d, maxDate)) ? [] : (byDate[ds] || [])
+        })
+        writeSlotCache(`sg_${format(mon, 'yyyyMMdd')}_${lessonType}_${loc}`, res)
+        wd.forEach(d => {
+          if (found.length >= 5) return
+          const ds = format(d, 'yyyy-MM-dd')
+          if (!isBefore(d, minDate) && !isAfter(d, maxDate) && res[ds]?.length > 0) found.push(d)
+        })
+      } catch {
+        // スキップして次の週へ
       }
-
-      wd.forEach(d => {
-        if (found.length >= 5) return
-        const ds = format(d, 'yyyy-MM-dd')
-        if (!isBefore(d, minDate) && !isAfter(d, maxDate) && res[ds]?.length > 0) found.push(d)
-      })
       mon = addWeeks(mon, 1)
     }
 
