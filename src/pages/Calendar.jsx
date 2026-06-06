@@ -64,7 +64,7 @@ function groupSlots(slots) {
 export default function Calendar({ profile, lessonType, onBook, onBack }) {
   const today   = startOfToday()
   const minDate = addDays(today, 1)
-  const maxDate = addDays(today, 30)
+  const maxDate = addDays(today, 90)
 
   const meta = LESSON_META[lessonType] || { label: lessonType }
   const dur  = LESSON_DURATION[lessonType] ?? 60
@@ -248,13 +248,13 @@ export default function Calendar({ profile, lessonType, onBook, onBack }) {
               <span style={{ fontSize: 20 }}>{searching ? '⏳' : '🔍'}</span>
               <div>
                 <div style={s.quickBtnLabel}>{searching ? '検索中...' : '空き枠を探す'}</div>
-                {!searching && <div style={s.quickBtnSub}>直近30日の空き状況を一括検索</div>}
+                {!searching && <div style={s.quickBtnSub}>直近90日の空き状況を一括検索</div>}
               </div>
             </button>
             {quickDays !== null && !searching && (
               <div style={s.quickResult}>
                 {quickDays.length === 0
-                  ? <span style={s.quickNone}>直近30日は空き枠なし</span>
+                  ? <span style={s.quickNone}>直近90日は空き枠なし</span>
                   : quickDays.map(d => (
                       <button
                         key={format(d, 'yyyy-MM-dd')}
